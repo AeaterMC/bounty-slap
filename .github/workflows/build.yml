@@ -12,8 +12,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: current
+          build-root-directory: bounty-slap
       - run: gradle build
+        working-directory: bounty-slap
       - uses: actions/upload-artifact@v4
         with:
           name: bounty-slap-jar
-          path: build/libs/*.jar
+          path: bounty-slap/build/libs/*.jar
