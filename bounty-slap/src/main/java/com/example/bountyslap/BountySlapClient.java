@@ -26,8 +26,10 @@ public class BountySlapClient implements ClientModInitializer {
     public static final String MOD_ID = "bountyslap";
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    /** Bounty additions of at least this many dollars get the full-screen poster slap. */
-    public static final double SLAP_THRESHOLD = 2_500_000d;
+    /** Bounty additions of at least this many dollars get the poster slap. */
+    public static final double SLAP_THRESHOLD = 1_000_000d;
+    /** Additions of at least this many dollars also get the big money ring around the poster. */
+    public static final double RING_THRESHOLD = 100_000_000d;
 
     /** F9 (rebindable): the poster slap. */
     public static boolean slapEnabled = true;
@@ -100,22 +102,14 @@ public class BountySlapClient implements ClientModInitializer {
                 (graphics, delta) -> BountyEffects.render(graphics));
 
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
-            // /bountytest <name> <amount>   e.g. /bountytest Steve 5M   or   /bountytest Steve 1000000
+            // /bountytest <amount> [name]   e.g.  /bountytest 5M   /bountytest 250M   /bountytest 1B
             dispatcher.register(ClientCommandManager.literal("bountytest")
-                    .then(ClientCommandManager.argument("name", StringArgumentType.word())
-                            .then(ClientCommandManager.argument("amount", StringArgumentType.word())
-                                    .executes(ctx -> {
-                                        String name = StringArgumentType.getString(ctx, "name");
-                                        String raw = StringArgumentType.getString(ctx, "amount");
-                                        Matcher m = Pattern.compile("^\\$?([\\d,]*\\.?\\d+)([kmbtKMBT]?)$").matcher(raw);
-                                        if (!m.matches()) {
-                                            say(Minecraft.getInstance(), "[Bounty] amount looks like 5M, 2.5M, 1B or 1000000", false);
-                                            return 0;
-                                        }
-                                        double amount = toDollars(m.group(1), m.group(2));
-                                        Minecraft.getInstance().execute(() -> BountyEffects.onBounty(name, amount));
-                                        return 1;
-                                    }))));
+                    .then(ClientCommandManager.argument("amount", StringArgumentType.word())
+                            .executes(ctx -> runTest(StringArgumentType.getString(ctx, "amount"), null))
+                            .then(ClientCommandManager.argument("name", StringArgumentType.word())
+                                    .executes(ctx -> runTest(
+                                            StringArgumentType.getString(ctx, "amount"),
+                                            StringArgumentType.getString(ctx, "name"))))));
 
             // /bountydebug -> echo bounty-looking lines + whether they matched
             dispatcher.register(ClientCommandManager.literal("bountydebug").executes(ctx -> {
@@ -124,6 +118,21 @@ public class BountySlapClient implements ClientModInitializer {
                 return 1;
             }));
         });
+    }
+
+    /** Runs a fake bounty addition. With no name given, your own username is used so your head shows. */
+    private static int runTest(String rawAmount, String nameOrNull) {
+        Minecraft mc = Minecraft.getInstance();
+        Matcher m = Pattern.compile("^([\\d,]*\\.?\\d+)([kmbtKMBT]?)$").matcher(rawAmount);
+        if (!m.matches()) {
+            say(mc, "[Bounty] amount looks like 1M, 2.5M, 100M, 1B or 1000000", false);
+            return 0;
+        }
+        double amount = toDollars(m.group(1), m.group(2));
+        String name = nameOrNull != null ? nameOrNull
+                : (mc.player != null ? mc.player.getName().getString() : "Steve");
+        mc.execute(() -> BountyEffects.onBounty(name, amount));
+        return 1;
     }
 
     private static void say(Minecraft mc, String text, boolean actionBar) {
