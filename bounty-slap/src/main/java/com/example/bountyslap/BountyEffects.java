@@ -29,6 +29,8 @@ final class BountyEffects {
 
     private static final Identifier POSTER = Identifier.fromNamespaceAndPath(
             BountySlapClient.MOD_ID, "textures/gui/bounty_poster.png");
+    private static final Identifier MONEY = Identifier.fromNamespaceAndPath(
+            BountySlapClient.MOD_ID, "textures/gui/money.png");
     private static final Random RNG = new Random();
 
     // ---- poster state ----
@@ -37,6 +39,7 @@ final class BountyEffects {
     private static String slapAmount = "";
     private static float slapTilt;
     private static boolean slapSoundPlayed;
+    private static boolean slapRing;
 
     // ---- toast state ----
     private static final class Toast {
@@ -54,7 +57,9 @@ final class BountyEffects {
     static void onBounty(String name, double amount) {
         String amt = BountySlapClient.fmtAmount(amount);
         if (BountySlapClient.toastsEnabled) addToast(name, amt);
-        if (BountySlapClient.slapEnabled && amount >= BountySlapClient.SLAP_THRESHOLD) startSlap(name, amt);
+        if (BountySlapClient.slapEnabled && amount >= BountySlapClient.SLAP_THRESHOLD) {
+            startSlap(name, amt, amount >= BountySlapClient.RING_THRESHOLD);
+        }
     }
 
     static void clearSlap() {
@@ -65,13 +70,14 @@ final class BountyEffects {
         toasts.clear();
     }
 
-    private static void startSlap(String name, String amt) {
+    private static void startSlap(String name, String amt, boolean ring) {
         // Overwrites any slap that is still playing: the newest bounty always wins.
         slapName = name;
         slapAmount = amt;
         slapStart = System.currentTimeMillis();
         slapTilt = -0.04f + (RNG.nextFloat() - 0.5f) * 0.10f;
         slapSoundPlayed = false;
+        slapRing = ring;
     }
 
     private static void addToast(String name, String amt) {
@@ -100,7 +106,7 @@ final class BountyEffects {
         }
 
         int w = g.guiWidth(), h = g.guiHeight();
-        float ph = h * 0.62f;
+        float ph = h * (slapRing ? 0.56f : 0.62f);   // a bit smaller so the money ring fits
         float pw = ph * TEX_W / TEX_H;
         float cx = w / 2f, cy = h * 0.57f;
 
@@ -153,6 +159,7 @@ final class BountyEffects {
         g.pose().translate(cx + ox, cy + oy);
         g.pose().rotate(rot);
         g.pose().scale(scale, scale);
+        if (slapRing) drawMoneyRing(g, pw, ph, el);   // behind the poster, moves/shakes with it
         g.fill((int) (-pw / 2f) + 6, (int) (-ph / 2f) + 8, (int) (pw / 2f) + 6, (int) (ph / 2f) + 8, 0x66000000);
         g.blit(RenderPipelines.GUI_TEXTURED, POSTER,
                 (int) (-pw / 2f), (int) (-ph / 2f), 0f, 0f, (int) pw, (int) ph, TEX_W, TEX_H, TEX_W, TEX_H);
@@ -169,7 +176,8 @@ final class BountyEffects {
             float ts = Math.min(2.0f, (w * 0.94f) / Math.max(1, total));
             ts *= 1.35f - 0.35f * tp;                      // pops in slightly oversized
             float alphaF = el >= OUT_START_MS ? Math.max(0f, 1f - (el - OUT_START_MS) / (float) (SLAP_MS - OUT_START_MS)) : 1f;
-            float textTop = Math.max(6f, cy - ph / 2f - 10f - 9f * ts);
+            float ringExtra = slapRing ? ph * 0.17f : 0f;
+            float textTop = Math.max(6f, cy - ph / 2f - ringExtra - 10f - 9f * ts);
 
             g.pose().pushMatrix();
             g.pose().translate(w / 2f, textTop);
@@ -178,6 +186,87 @@ final class BountyEffects {
             drawSegments(g, mc, parts, rgb, -total / 2, 0, (int) (255 * alphaF));
             g.pose().popMatrix();
         }
+    }
+
+    // ------------------------------------------------------------------ money ring ($100M+)
+
+    /**
+     * Two rings of bills hugging the poster (a rounded rectangle path), travelling in opposite
+     * directions. Called inside the poster's transform, so it slams in, shakes and peels away with it.
+     * About 60 small textured draws per frame.
+     */
+    private static void drawMoneyRing(GuiGraphics g, float pw, float ph, long el) {
+        float t = el / 1000f;
+        float bw = ph * 0.22f;
+        float bh = bw / 2f;
+        float[] pt = new float[3];
+        for (int ring = 0; ring < 2; ring++) {
+            float off = bh * (ring == 0 ? 0.30f : 0.95f);
+            float size = ring == 0 ? 1f : 0.85f;
+            float a = pw / 2f + off, b = ph / 2f + off;
+            float r = Math.min(a, b) * 0.35f;
+            float total = 2f * (2f * (a - r)) + 2f * (2f * (b - r)) + 4f * 1.5708f * r;
+            int n = Math.max(12, Math.round(total / (bw * size * 0.62f)));
+            float dir = ring == 0 ? 1f : -1f;
+            float shift = dir * t * total * 0.22f;
+            int w = Math.max(6, (int) (bw * size));
+            int hh = Math.max(3, w / 2);
+            for (int i = 0; i < n; i++) {
+                ringPoint(i * total / n + shift, a, b, r, pt);
+                g.pose().pushMatrix();
+                g.pose().translate(pt[0], pt[1]);
+                g.pose().rotate(pt[2]);
+                g.blit(RenderPipelines.GUI_TEXTURED, MONEY, -w / 2, -hh / 2, 0f, 0f, w, hh, 256, 128, 256, 128);
+                g.pose().popMatrix();
+            }
+        }
+    }
+
+    /**
+     * Point at distance s along a clockwise rounded-rectangle path (half sizes a, b; corner radius r).
+     * out = {x, y, tangent angle in radians}.
+     */
+    private static void ringPoint(float s, float a, float b, float r, float[] out) {
+        final float halfPi = 1.5707964f;
+        float lh = 2f * (a - r), lv = 2f * (b - r), la = halfPi * r;
+        float total = 2f * lh + 2f * lv + 4f * la;
+        s = ((s % total) + total) % total;
+        if (s < lh) { out[0] = -(a - r) + s; out[1] = -b; out[2] = 0f; return; }
+        s -= lh;
+        if (s < la) {
+            float f = s / r;
+            out[0] = (a - r) + r * (float) Math.sin(f);
+            out[1] = -(b - r) - r * (float) Math.cos(f);
+            out[2] = f;
+            return;
+        }
+        s -= la;
+        if (s < lv) { out[0] = a; out[1] = -(b - r) + s; out[2] = halfPi; return; }
+        s -= lv;
+        if (s < la) {
+            float f = s / r;
+            out[0] = (a - r) + r * (float) Math.cos(f);
+            out[1] = (b - r) + r * (float) Math.sin(f);
+            out[2] = f + halfPi;
+            return;
+        }
+        s -= la;
+        if (s < lh) { out[0] = (a - r) - s; out[1] = b; out[2] = 3.1415927f; return; }
+        s -= lh;
+        if (s < la) {
+            float f = s / r;
+            out[0] = -(a - r) - r * (float) Math.sin(f);
+            out[1] = (b - r) + r * (float) Math.cos(f);
+            out[2] = 3.1415927f + f;
+            return;
+        }
+        s -= la;
+        if (s < lv) { out[0] = -a; out[1] = (b - r) - s; out[2] = 3f * halfPi; return; }
+        s -= lv;
+        float f = s / r;
+        out[0] = -(a - r) - r * (float) Math.cos(f);
+        out[1] = -(b - r) - r * (float) Math.sin(f);
+        out[2] = 3f * halfPi + f;
     }
 
     // ------------------------------------------------------------------ notifications
