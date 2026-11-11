@@ -74,6 +74,8 @@ final class BountyEffects {
     // ------------------------------------------------------------------ entry points
 
     static void onBounty(String name, double amount) {
+        // A rolled Pirate Token has priority until its full animation has finished.
+        if (isTokenAnimationActive()) return;
         String amt = BountySlapClient.fmtAmount(amount);
         if (BountySlapClient.toastsEnabled) addToast(name, amt);
         if (BountySlapClient.slapEnabled && amount >= BountySlapClient.SLAP_THRESHOLD) {
@@ -87,6 +89,12 @@ final class BountyEffects {
         startSlap(name, BountySlapClient.fmtAmount(amount), false, true);
     }
 
+    /** True only while the Pirate Token is actively occupying the slap animation. */
+    static boolean isTokenAnimationActive() {
+        return slapToken && slapStart >= 0L
+                && System.currentTimeMillis() - slapStart < TOKEN_MS;
+    }
+
     static void clearSlap() {
         slapStart = -1L;
     }
@@ -96,7 +104,9 @@ final class BountyEffects {
     }
 
     private static void startSlap(String name, String amt, boolean ring, boolean token) {
-        // Overwrites any slap that is still playing: the newest bounty always wins.
+        // Never allow a new bounty or test command to interrupt an active Pirate Token.
+        if (isTokenAnimationActive()) return;
+        // Outside a token animation, the newest qualifying bounty still replaces the prior slap.
         slapName = name;
         slapAmount = amt;
         slapStart = System.currentTimeMillis();

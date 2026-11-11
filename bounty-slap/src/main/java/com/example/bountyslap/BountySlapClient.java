@@ -224,7 +224,12 @@ public class BountySlapClient implements ClientModInitializer {
         final String fname = name;
         final double famount = amount;
         mc.execute(() -> {
-            // Remember the addition for the leaderboard (with the head, if that player is in the tab list).
+            // Ignore all incoming bounty additions while a Pirate Token animation is active.
+            // This protects the token, its associated notification, and the leaderboard from
+            // being replaced/updated by additions received during the 7.5-second animation.
+            if (BountyEffects.isTokenAnimationActive()) return;
+
+            // Remember the addition for the leaderboard (with the locally cached player skin, if available).
             BountyBoard.record(fname, famount,
                     mc.getConnection() != null ? mc.getConnection().getPlayerInfo(fname) : null);
             BountyEffects.onBounty(fname, famount);

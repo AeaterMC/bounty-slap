@@ -42,9 +42,18 @@ final class BountyBoard {
 
     // Box positions in leaderboard.png pixels {x0, y0, x1, y1}, measured from the reference image.
     // Slot 0 = #1 (center podium), 1 = #2 (left podium), 2 = #3 (right podium).
-    private static final int[][] HEAD = {{297, 180, 361, 243}, {181, 201, 245, 265}, {414, 213, 481, 277}};
-    private static final int[][] NAME = {{297, 251, 361, 267}, {179, 271, 246, 290}, {414, 282, 481, 300}};
-    private static final int BOX_GRAY = 0xFFC8D1DA;
+    // Coordinates mapped from the supplied 1648x928 /bountyboard reference to 666x375.
+    // Slot order: #1 center, #2 left, #3 right.
+    private static final int[][] HEAD = {
+            {283, 147, 376, 240},   // 1st
+            {165, 166, 258, 258},   // 2nd
+            {400, 176, 493, 268}    // 3rd
+    };
+    private static final int[][] NAME = {
+            {283, 247, 376, 275},   // 1st name + amount plaque
+            {165, 266, 258, 295},   // 2nd name + amount plaque
+            {400, 276, 493, 305}    // 3rd name + amount plaque
+    };
 
     private static final List<Entry> top = new ArrayList<>();
     private static boolean pendingOpen;
@@ -148,21 +157,33 @@ final class BountyBoard {
 
             PlayerInfo info = e != null ? infoFor(mc, e) : null;
             if (info != null) {
-                int size = Math.min(hw, hh);          // head fills the whole box
+                int size = Math.min(hw, hh);
                 int hx = hx0 + (hw - size) / 2;
                 int hy = hy0 + (hh - size) / 2;
+                // Uses the skin texture already cached by the connected Minecraft client.
                 PlayerFaceRenderer.draw(g, info.getSkin(), hx, hy, size);
             } else {
+                g.fill(hx0, hy0, hx1, hy1, 0xFFE7C77F);
+                g.fill(hx0, hy0, hx1, hy0 + 3, 0xFFFFE3A0);
                 drawCentered(g, mc, "?", hx0 + hw / 2f, hy0 + hh * 0.5f,
-                        hw * 0.5f, hh * 0.5f, 8f, 0xFF5A3A12);
+                        hw * 0.5f, hh * 0.5f, 8f, 0xFF65451F);
             }
 
-            if (e != null) {
-                drawCentered(g, mc, BountySlapClient.fmtAmount(e.amount), nx0 + nw / 2f, ny1 + nh * 0.9f + 4f,
-                        nw * 1.1f, nh * 0.9f, 2.4f, 0xFF14702B);   // amount just under the name tag
-                drawCentered(g, mc, e.name, nx0 + nw / 2f, ny0 + nh / 2f, nw * 0.94f, nh * 0.80f, 2.2f, 0xFF3A2406);
-            } else {
-                drawCentered(g, mc, "---", nx0 + nw / 2f, ny0 + nh / 2f, nw * 0.94f, nh * 0.80f, 2.2f, 0xFF3A2406);
+            // Two-line sandstone plaque, matching the supplied /bountyboard layout.
+            int plaqueX0 = nx0 - 2, plaqueY0 = ny0 - 2;
+            int plaqueX1 = nx1 + 2, plaqueY1 = ny1 + 2;
+            g.fill(plaqueX0 + 2, plaqueY0 + 3, plaqueX1 + 2, plaqueY1 + 3, 0x665C421F);
+            g.fill(plaqueX0, plaqueY0, plaqueX1, plaqueY1, 0xFF9C7438);
+            g.fill(plaqueX0 + 2, plaqueY0 + 2, plaqueX1 - 2, plaqueY1 - 2, 0xFFE8C77F);
+            g.fill(plaqueX0 + 3, plaqueY0 + 3, plaqueX1 - 3, plaqueY0 + 5, 0xFFFFE3A0);
+
+            String playerName = e != null ? e.name : "---";
+            String amount = e != null ? BountySlapClient.fmtAmount(e.amount) : "";
+            drawCentered(g, mc, playerName, nx0 + nw / 2f, ny0 + nh * 0.31f,
+                    nw * 0.90f, nh * 0.43f, 1.35f, 0xFF3A2406);
+            if (!amount.isEmpty()) {
+                drawCentered(g, mc, amount, nx0 + nw / 2f, ny0 + nh * 0.76f,
+                        nw * 0.90f, nh * 0.43f, 1.35f, 0xFF28602A);
             }
         }
     }

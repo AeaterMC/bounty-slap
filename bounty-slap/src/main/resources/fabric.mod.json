@@ -1,13 +1,17 @@
 {
   "schemaVersion": 1,
   "id": "bountyslap",
-  "version": "${version}",
+  "version": "1.1.3",
   "name": "Bounty Slap",
   "description": "Slaps a wanted poster on your screen when someone adds a big amount to your bounty, plus small top-right notifications with the player's head.",
-  "authors": ["You"],
+  "authors": [
+    "You"
+  ],
   "environment": "client",
   "entrypoints": {
-    "client": ["com.example.bountyslap.BountySlapClient"]
+    "client": [
+      "com.example.bountyslap.BountySlapClient"
+    ]
   },
   "depends": {
     "fabricloader": ">=0.18.0",
