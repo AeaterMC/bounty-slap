@@ -132,12 +132,9 @@ final class BountyBoard {
 
     static void render(GuiGraphics g, int w, int h, List<Entry> entries) {
         Minecraft mc = Minecraft.getInstance();
-        g.fill(0, 0, w, h, 0xFFFFFFFF);          // white sky (the image's sky is transparent)
         g.blit(RenderPipelines.GUI_TEXTURED, BOARD, 0, 0, 0f, 0f, w, h, IMG_W, IMG_H, IMG_W, IMG_H);  // whole screen
 
         float sx = w / (float) IMG_W, sy = h / (float) IMG_H;
-
-        drawCentered(g, mc, "TOP BOUNTY ADDITIONS", w / 2f, h * 0.085f, w * 0.62f, h * 0.12f, 4.5f, 0xFF2B2B2B);
 
         for (int slot = 0; slot < 3; slot++) {
             Entry e = slot < entries.size() ? entries.get(slot) : null;
@@ -148,10 +145,10 @@ final class BountyBoard {
             int nx1 = Math.round(NAME[slot][2] * sx), ny1 = Math.round(NAME[slot][3] * sy);
             int hw = hx1 - hx0, hh = hy1 - hy0, nw = nx1 - nx0, nh = ny1 - ny0;
 
-            g.fill(hx0, hy0, hx1, hy1, BOX_GRAY);     // big box: the player's head
             g.fill(nx0, ny0, nx1, ny1, BOX_GRAY);     // small box: the player's name
 
             PlayerInfo info = e != null ? infoFor(mc, e) : null;
+            if (info == null) g.fill(hx0, hy0, hx1, hy1, BOX_GRAY);   // placeholder only when no head is known
             if (info != null) {
                 int size = (int) (Math.min(hw, hh) * 0.70f);
                 int hx = hx0 + (hw - size) / 2;

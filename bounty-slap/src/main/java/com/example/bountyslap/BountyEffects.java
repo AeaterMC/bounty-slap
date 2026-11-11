@@ -250,7 +250,6 @@ final class BountyEffects {
         g.pose().translate((AMT_CX - 0.5f) * pw, (AMT_CY - 0.5f) * ph);
         g.pose().scale(scale, scale);
         g.drawString(mc.font, s, -tw / 2, -4, AMT_COLOR);
-        g.drawString(mc.font, s, -tw / 2 + 1, -4, AMT_COLOR);     // doubled 1px = bolder, like the poster lettering
         g.pose().popMatrix();
     }
 

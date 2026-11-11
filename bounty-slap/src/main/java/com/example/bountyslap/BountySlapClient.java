@@ -149,9 +149,15 @@ public class BountySlapClient implements ClientModInitializer {
     /** Runs a fake bounty addition. With no name given, your own username is used so your head shows. */
     private static int runTest(String rawAmount, String nameOrNull) {
         Minecraft mc = Minecraft.getInstance();
+        if (rawAmount.equalsIgnoreCase("token")) {      // /bountytest token [name]
+            String tn = nameOrNull != null ? nameOrNull
+                    : (mc.player != null ? mc.player.getName().getString() : "Steve");
+            mc.execute(() -> BountyEffects.testToken(tn, 1_000_000d));
+            return 1;
+        }
         Matcher m = Pattern.compile("^([\\d,]*\\.?\\d+)([kmbtKMBT]?)$").matcher(rawAmount);
         if (!m.matches()) {
-            say(mc, "[Bounty] amount looks like 1M, 2.5M, 100M, 1B or 1000000", false);
+            say(mc, "[Bounty] amount looks like 1M, 2.5M, 100M, 1B or 1000000 (or: token)", false);
             return 0;
         }
         double amount = toDollars(m.group(1), m.group(2));
