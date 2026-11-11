@@ -7,6 +7,7 @@ import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.resources.Identifier;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 
 import java.util.ArrayList;
@@ -14,32 +15,50 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Two things live here:
- *  1. The poster "slap" (3 seconds max; a newer bounty restarts it from scratch).
- *  2. Small notifications in the top-right corner with the player's head beside the text.
- * No full-screen flashing is used anywhere.
+ * Three things live here:
+ *  1. The poster "slap" (3 seconds max; a newer bounty restarts it from scratch), with the
+ *     added amount written into the poster's blank box. $100M+ adds the spinning coin ring.
+ *  2. The super-rare Pirate Token (0.05% chance on any slap) which replaces the poster for 7.5 seconds.
+ *  3. Small notifications in the top-right corner with the player's head beside the text.
  */
 final class BountyEffects {
-    static final long SLAP_MS = 3000L;             // hard maximum for the poster animation
-    private static final long IMPACT_MS = 140L;    // poster hits the screen
-    private static final long OUT_START_MS = 2700L; // poster starts peeling away
+    static final long SLAP_MS = 3000L;               // poster animation
+    static final long TOKEN_MS = 7500L;              // Pirate Token animation
+    static final float TOKEN_CHANCE = 0.0005f;       // 0.05%
+    private static final long IMPACT_MS = 140L;      // poster / token hits the screen
+    private static final long FADE_MS = 300L;        // peel-away at the very end
     private static final long TOAST_MS = 4000L;
     private static final int MAX_TOASTS = 5;
-    private static final int TEX_W = 384, TEX_H = 512;
+
+    private static final int TEX_W = 480, TEX_H = 640;          // poster texture
+    private static final int MONEY_TEX_SIZE = 500;              // spinning coin/revolver ring texture
+    private static final int TOKEN_W = 433, TOKEN_H = 577;      // pirate token texture
+    private static final float POSTER_SCALE = 0.8f;             // poster is 80% of its old size
+
+    // Where the amount goes on the poster (fractions of the poster image, measured from the reference).
+    private static final float AMT_CX = 0.4919f, AMT_CY = 0.9017f, AMT_W = 0.6968f, AMT_H = 0.0734f;
+    private static final int AMT_COLOR = 0xFF545454;            // same gray as the poster lettering
 
     private static final Identifier POSTER = Identifier.fromNamespaceAndPath(
             BountySlapClient.MOD_ID, "textures/gui/bounty_poster.png");
     private static final Identifier MONEY = Identifier.fromNamespaceAndPath(
             BountySlapClient.MOD_ID, "textures/gui/money.png");
+    private static final Identifier TOKEN = Identifier.fromNamespaceAndPath(
+            BountySlapClient.MOD_ID, "textures/gui/token.png");
     private static final Random RNG = new Random();
 
-    // ---- poster state ----
+    /** When (ms after the slap starts) each Pirate Token sound plays. */
+    private static final long[] TOKEN_SOUND_AT = {300L, 900L, 1600L, 2500L, 3500L, 4600L, 5800L};
+
+    // ---- poster / token state ----
     private static long slapStart = -1L;
     private static String slapName = "";
     private static String slapAmount = "";
     private static float slapTilt;
     private static boolean slapSoundPlayed;
     private static boolean slapRing;
+    private static boolean slapToken;
+    private static int tokenSoundIdx;
 
     // ---- toast state ----
     private static final class Toast {
@@ -58,8 +77,14 @@ final class BountyEffects {
         String amt = BountySlapClient.fmtAmount(amount);
         if (BountySlapClient.toastsEnabled) addToast(name, amt);
         if (BountySlapClient.slapEnabled && amount >= BountySlapClient.SLAP_THRESHOLD) {
-            startSlap(name, amt, amount >= BountySlapClient.RING_THRESHOLD);
+            boolean token = RNG.nextFloat() < TOKEN_CHANCE;      // 0.05% Pirate Token
+            startSlap(name, amt, amount >= BountySlapClient.RING_THRESHOLD, token);
         }
+    }
+
+    /** /bountytoken: forces the Pirate Token animation so you can preview it. */
+    static void testToken(String name, double amount) {
+        startSlap(name, BountySlapClient.fmtAmount(amount), false, true);
     }
 
     static void clearSlap() {
@@ -70,14 +95,16 @@ final class BountyEffects {
         toasts.clear();
     }
 
-    private static void startSlap(String name, String amt, boolean ring) {
+    private static void startSlap(String name, String amt, boolean ring, boolean token) {
         // Overwrites any slap that is still playing: the newest bounty always wins.
         slapName = name;
         slapAmount = amt;
         slapStart = System.currentTimeMillis();
         slapTilt = -0.04f + (RNG.nextFloat() - 0.5f) * 0.10f;
         slapSoundPlayed = false;
-        slapRing = ring;
+        slapToken = token;
+        slapRing = ring && !token;
+        tokenSoundIdx = 0;
     }
 
     private static void addToast(String name, String amt) {
@@ -95,19 +122,27 @@ final class BountyEffects {
         renderToasts(g, mc);
     }
 
-    // ------------------------------------------------------------------ poster slap
+    // ------------------------------------------------------------------ poster slap / pirate token
 
     private static void renderSlap(GuiGraphics g, Minecraft mc) {
         if (slapStart < 0L) return;
         long el = System.currentTimeMillis() - slapStart;
-        if (el >= SLAP_MS) {
+        long dur = slapToken ? TOKEN_MS : SLAP_MS;
+        if (el >= dur) {
             slapStart = -1L;
             return;
         }
+        long outStart = dur - FADE_MS;
 
         int w = g.guiWidth(), h = g.guiHeight();
-        float ph = h * (slapRing ? 0.56f : 0.62f);   // a bit smaller so the money ring fits
-        float pw = ph * TEX_W / TEX_H;
+        float ph, pw;
+        if (slapToken) {
+            ph = h * 0.50f;
+            pw = ph * TOKEN_W / TOKEN_H;
+        } else {
+            ph = h * (slapRing ? 0.56f : 0.62f) * POSTER_SCALE;   // a bit smaller so the coin ring fits
+            pw = ph * TEX_W / TEX_H;
+        }
         float cx = w / 2f, cy = h * 0.57f;
 
         // --- motion: slam in from huge, shake + squash on impact, hold, then peel away ---
@@ -126,18 +161,25 @@ final class BountyEffects {
             scale = 1f + 0.10f * decay * (float) Math.cos(a * 0.05);
             rot = slapTilt;
         }
-        if (el >= OUT_START_MS) {
-            float u = (el - OUT_START_MS) / (float) (SLAP_MS - OUT_START_MS);
+        if (slapToken && el >= IMPACT_MS) {              // the token floats, pulses and sways while it is up
+            float t = el / 1000f;
+            oy += (float) Math.sin(t * 2.2f) * h * 0.012f;
+            scale *= 1f + 0.03f * (float) Math.sin(t * 4.0f);
+            rot += (float) Math.sin(t * 1.3f) * 0.05f;
+        }
+        if (el >= outStart) {
+            float u = (el - outStart) / (float) FADE_MS;
             scale *= Math.max(0f, 1f - u * u);
             rot += u * 0.35f;
         }
 
-        // --- impact sound, once ---
+        // --- impact sound, once (the slap sound is unchanged) ---
         if (!slapSoundPlayed && el >= IMPACT_MS) {
             slapSoundPlayed = true;
             mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.PLAYER_ATTACK_STRONG, 0.6f, 1.2f));
             mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.ANVIL_LAND, 1.5f, 0.35f));
         }
+        if (slapToken) playTokenSounds(mc, el);
 
         // --- impact burst lines (behind the poster) ---
         if (el >= IMPACT_MS && el < IMPACT_MS + 260L) {
@@ -154,18 +196,26 @@ final class BountyEffects {
             }
         }
 
-        // --- the poster ---
+        // --- the poster (or the Pirate Token) ---
         g.pose().pushMatrix();
         g.pose().translate(cx + ox, cy + oy);
         g.pose().rotate(rot);
         g.pose().scale(scale, scale);
-        if (slapRing) drawMoneyRing(g, pw, ph, el);   // behind the poster, moves/shakes with it
-        g.fill((int) (-pw / 2f) + 6, (int) (-ph / 2f) + 8, (int) (pw / 2f) + 6, (int) (ph / 2f) + 8, 0x66000000);
-        g.blit(RenderPipelines.GUI_TEXTURED, POSTER,
-                (int) (-pw / 2f), (int) (-ph / 2f), 0f, 0f, (int) pw, (int) ph, TEX_W, TEX_H, TEX_W, TEX_H);
+        if (slapToken) {
+            drawSunburst(g, ph, el);
+            int tw = (int) pw, th = (int) ph;
+            g.blit(RenderPipelines.GUI_TEXTURED, TOKEN,
+                    -tw / 2, -th / 2, 0f, 0f, tw, th, TOKEN_W, TOKEN_H, TOKEN_W, TOKEN_H);
+        } else {
+            if (slapRing) drawMoneyRing(g, pw, ph, el);   // behind the poster, moves/shakes with it
+            g.fill((int) (-pw / 2f) + 6, (int) (-ph / 2f) + 8, (int) (pw / 2f) + 6, (int) (ph / 2f) + 8, 0x66000000);
+            g.blit(RenderPipelines.GUI_TEXTURED, POSTER,
+                    (int) (-pw / 2f), (int) (-ph / 2f), 0f, 0f, (int) pw, (int) ph, TEX_W, TEX_H, TEX_W, TEX_H);
+            drawPosterAmount(g, mc, pw, ph);              // the added amount, written into the blank box
+        }
         g.pose().popMatrix();
 
-        // --- "<NAME> Added <AMOUNT> to the Bounty!" above the poster ---
+        // --- "<NAME> Added <AMOUNT> to the Bounty!" above ---
         if (el >= IMPACT_MS) {
             String[] parts = {slapName, " Added ", slapAmount, " to the Bounty!"};
             int[] rgb = {0xFFC83A, 0xFFFFFF, 0x55FF55, 0xFFFFFF};
@@ -175,9 +225,9 @@ final class BountyEffects {
             float tp = Math.min(1f, (el - IMPACT_MS) / 120f);
             float ts = Math.min(2.0f, (w * 0.94f) / Math.max(1, total));
             ts *= 1.35f - 0.35f * tp;                      // pops in slightly oversized
-            float alphaF = el >= OUT_START_MS ? Math.max(0f, 1f - (el - OUT_START_MS) / (float) (SLAP_MS - OUT_START_MS)) : 1f;
-            float ringExtra = slapRing ? ph * 0.17f : 0f;
-            float textTop = Math.max(6f, cy - ph / 2f - ringExtra - 10f - 9f * ts);
+            float alphaF = el >= outStart ? Math.max(0f, 1f - (el - outStart) / (float) FADE_MS) : 1f;
+            float extra = slapToken ? ph * 0.45f : (slapRing ? ph * 0.3f : 0f);
+            float textTop = Math.max(6f, cy - ph / 2f - extra - 10f - 9f * ts);
 
             g.pose().pushMatrix();
             g.pose().translate(w / 2f, textTop);
@@ -185,88 +235,86 @@ final class BountyEffects {
             g.fill(-total / 2 - 6, -3, total / 2 + 6, 11, ((int) (0x99 * alphaF) << 24));
             drawSegments(g, mc, parts, rgb, -total / 2, 0, (int) (255 * alphaF));
             g.pose().popMatrix();
+
+            if (slapToken) drawTokenLabel(g, mc, w, cy + ph / 2f + 6f, el, alphaF);
         }
     }
 
-    // ------------------------------------------------------------------ money ring ($100M+)
+    /** Writes the amount into the poster's blank box, same spot the "<AMOUNT>" placeholder was. */
+    private static void drawPosterAmount(GuiGraphics g, Minecraft mc, float pw, float ph) {
+        String s = slapAmount;
+        int tw = Math.max(1, mc.font.width(s));
+        // letters are ~7 font-pixels tall; never wider than the box
+        float scale = Math.min(AMT_H * ph / 7f, AMT_W * pw / (tw + 1f));
+        g.pose().pushMatrix();
+        g.pose().translate((AMT_CX - 0.5f) * pw, (AMT_CY - 0.5f) * ph);
+        g.pose().scale(scale, scale);
+        g.drawString(mc.font, s, -tw / 2, -4, AMT_COLOR);
+        g.drawString(mc.font, s, -tw / 2 + 1, -4, AMT_COLOR);     // doubled 1px = bolder, like the poster lettering
+        g.pose().popMatrix();
+    }
 
-    /**
-     * Two rings of bills hugging the poster (a rounded rectangle path), travelling in opposite
-     * directions. Called inside the poster's transform, so it slams in, shakes and peels away with it.
-     * About 60 small textured draws per frame.
-     */
+    /** Spinning coin / revolver ring ($100M+), drawn inside the poster's transform. */
     private static void drawMoneyRing(GuiGraphics g, float pw, float ph, long el) {
-        float t = el / 1000f;
-        float bw = ph * 0.22f;
-        float bh = bw / 2f;
-        float[] pt = new float[3];
-        for (int ring = 0; ring < 2; ring++) {
-            float off = bh * (ring == 0 ? 0.30f : 0.95f);
-            float size = ring == 0 ? 1f : 0.85f;
-            float a = pw / 2f + off, b = ph / 2f + off;
-            float r = Math.min(a, b) * 0.35f;
-            float total = 2f * (2f * (a - r)) + 2f * (2f * (b - r)) + 4f * 1.5708f * r;
-            int n = Math.max(12, Math.round(total / (bw * size * 0.62f)));
-            float dir = ring == 0 ? 1f : -1f;
-            float shift = dir * t * total * 0.22f;
-            int w = Math.max(6, (int) (bw * size));
-            int hh = Math.max(3, w / 2);
-            for (int i = 0; i < n; i++) {
-                ringPoint(i * total / n + shift, a, b, r, pt);
-                g.pose().pushMatrix();
-                g.pose().translate(pt[0], pt[1]);
-                g.pose().rotate(pt[2]);
-                g.blit(RenderPipelines.GUI_TEXTURED, MONEY, -w / 2, -hh / 2, 0f, 0f, w, hh, 256, 128, 256, 128);
-                g.pose().popMatrix();
-            }
+        float size = ph * 1.45f;
+        float s = size / MONEY_TEX_SIZE;
+        g.pose().pushMatrix();
+        g.pose().rotate((el % 2094L) * 0.003f);
+        g.pose().scale(s, s);
+        g.blit(RenderPipelines.GUI_TEXTURED, MONEY,
+                -MONEY_TEX_SIZE / 2, -MONEY_TEX_SIZE / 2, 0f, 0f,
+                MONEY_TEX_SIZE, MONEY_TEX_SIZE, MONEY_TEX_SIZE, MONEY_TEX_SIZE);
+        g.pose().popMatrix();
+    }
+
+    /** Slowly rotating golden rays behind the Pirate Token. */
+    private static void drawSunburst(GuiGraphics g, float ph, long el) {
+        float spin = el / 1000f * 0.6f;
+        int thick = Math.max(2, (int) (ph * 0.035f));
+        for (int i = 0; i < 16; i++) {
+            float len = (i % 2 == 0) ? 0.95f : 0.72f;
+            g.pose().pushMatrix();
+            g.pose().rotate(spin + i * (6.2831855f / 16f));
+            g.fill((int) (ph * 0.30f), -thick, (int) (ph * len), thick, (0x66 << 24) | 0xFFD040);
+            g.pose().popMatrix();
         }
     }
 
-    /**
-     * Point at distance s along a clockwise rounded-rectangle path (half sizes a, b; corner radius r).
-     * out = {x, y, tangent angle in radians}.
-     */
-    private static void ringPoint(float s, float a, float b, float r, float[] out) {
-        final float halfPi = 1.5707964f;
-        float lh = 2f * (a - r), lv = 2f * (b - r), la = halfPi * r;
-        float total = 2f * lh + 2f * lv + 4f * la;
-        s = ((s % total) + total) % total;
-        if (s < lh) { out[0] = -(a - r) + s; out[1] = -b; out[2] = 0f; return; }
-        s -= lh;
-        if (s < la) {
-            float f = s / r;
-            out[0] = (a - r) + r * (float) Math.sin(f);
-            out[1] = -(b - r) - r * (float) Math.cos(f);
-            out[2] = f;
-            return;
+    private static void drawTokenLabel(GuiGraphics g, Minecraft mc, int w, float top, long el, float alphaF) {
+        float pulse = 1f + 0.06f * (float) Math.sin(el / 120.0);
+        int a = (int) (255 * alphaF);
+        String big = "PIRATE TOKEN!";
+        String small = "0.05% chance - super rare!";
+        int bw = mc.font.width(big);
+        int sw = mc.font.width(small);
+
+        g.pose().pushMatrix();
+        g.pose().translate(w / 2f, top);
+        g.pose().scale(3.2f * pulse, 3.2f * pulse);
+        g.fill(-bw / 2 - 5, -3, bw / 2 + 5, 11, ((int) (0x99 * alphaF) << 24));
+        g.drawString(mc.font, big, -bw / 2, 0, (a << 24) | 0xFFD23F);
+        g.pose().popMatrix();
+
+        g.pose().pushMatrix();
+        g.pose().translate(w / 2f, top + 34f);
+        g.pose().scale(1.5f, 1.5f);
+        g.drawString(mc.font, small, -sw / 2, 0, (a << 24) | 0xFFFFFF);
+        g.pose().popMatrix();
+    }
+
+    private static void playTokenSounds(Minecraft mc, long el) {
+        while (tokenSoundIdx < TOKEN_SOUND_AT.length && el >= TOKEN_SOUND_AT[tokenSoundIdx]) {
+            int i = tokenSoundIdx++;
+            SoundEvent se;
+            float pitch;
+            float vol = 0.8f;
+            switch (i % 3) {
+                case 0 -> { se = SoundEvents.PLAYER_LEVELUP; pitch = 1.0f + 0.1f * i; }
+                case 1 -> { se = SoundEvents.FIREWORK_ROCKET_LARGE_BLAST; pitch = 0.9f; vol = 0.6f; }
+                default -> { se = SoundEvents.EXPERIENCE_ORB_PICKUP; pitch = 1.4f; }
+            }
+            mc.getSoundManager().play(SimpleSoundInstance.forUI(se, pitch, vol));
         }
-        s -= la;
-        if (s < lv) { out[0] = a; out[1] = -(b - r) + s; out[2] = halfPi; return; }
-        s -= lv;
-        if (s < la) {
-            float f = s / r;
-            out[0] = (a - r) + r * (float) Math.cos(f);
-            out[1] = (b - r) + r * (float) Math.sin(f);
-            out[2] = f + halfPi;
-            return;
-        }
-        s -= la;
-        if (s < lh) { out[0] = (a - r) - s; out[1] = b; out[2] = 3.1415927f; return; }
-        s -= lh;
-        if (s < la) {
-            float f = s / r;
-            out[0] = -(a - r) - r * (float) Math.sin(f);
-            out[1] = (b - r) + r * (float) Math.cos(f);
-            out[2] = 3.1415927f + f;
-            return;
-        }
-        s -= la;
-        if (s < lv) { out[0] = -a; out[1] = (b - r) - s; out[2] = 3f * halfPi; return; }
-        s -= lv;
-        float f = s / r;
-        out[0] = -(a - r) - r * (float) Math.cos(f);
-        out[1] = -(b - r) - r * (float) Math.sin(f);
-        out[2] = 3f * halfPi + f;
     }
 
     // ------------------------------------------------------------------ notifications

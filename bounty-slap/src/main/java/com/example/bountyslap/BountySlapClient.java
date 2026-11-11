@@ -42,6 +42,7 @@ public class BountySlapClient implements ClientModInitializer {
 
     private static KeyMapping slapKey;
     private static KeyMapping toastKey;
+    private static KeyMapping boardKey;
 
     // ---- message matching -------------------------------------------------------------
     // Anchored at the START of the line (after optional [Rank] tags) so another player
@@ -71,7 +72,15 @@ public class BountySlapClient implements ClientModInitializer {
         toastKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.bountyslap.toggle_toasts", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_F4, category));
 
+        boardKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.bountyslap.open_board", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_F10, category));
+        BountyBoard.load();
+
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            BountyBoard.tick(mc);
+            while (boardKey.consumeClick()) {
+                BountyBoard.requestOpen(false);
+            }
             while (slapKey.consumeClick()) {
                 slapEnabled = !slapEnabled;
                 if (!slapEnabled) BountyEffects.clearSlap();
@@ -111,6 +120,23 @@ public class BountySlapClient implements ClientModInitializer {
                                             StringArgumentType.getString(ctx, "amount"),
                                             StringArgumentType.getString(ctx, "name"))))));
 
+            // /bountyboard (opens the leaderboard)  /bountyboard demo (sample data)
+            dispatcher.register(ClientCommandManager.literal("bountyboard")
+                    .executes(ctx -> {
+                        BountyBoard.requestOpen(false);
+                        return 1;
+                    })
+                    .then(ClientCommandManager.literal("demo").executes(ctx -> {
+                        BountyBoard.requestOpen(true);
+                        return 1;
+                    })));
+
+            // /bountytoken [amount] -> force the Pirate Token animation for previewing
+            dispatcher.register(ClientCommandManager.literal("bountytoken")
+                    .executes(ctx -> runToken("1M"))
+                    .then(ClientCommandManager.argument("amount", StringArgumentType.word())
+                            .executes(ctx -> runToken(StringArgumentType.getString(ctx, "amount")))));
+
             // /bountydebug -> echo bounty-looking lines + whether they matched
             dispatcher.register(ClientCommandManager.literal("bountydebug").executes(ctx -> {
                 debug = !debug;
@@ -132,6 +158,19 @@ public class BountySlapClient implements ClientModInitializer {
         String name = nameOrNull != null ? nameOrNull
                 : (mc.player != null ? mc.player.getName().getString() : "Steve");
         mc.execute(() -> BountyEffects.onBounty(name, amount));
+        return 1;
+    }
+
+    private static int runToken(String rawAmount) {
+        Minecraft mc = Minecraft.getInstance();
+        Matcher m = Pattern.compile("^([\\d,]*\\.?\\d+)([kmbtKMBT]?)$").matcher(rawAmount);
+        if (!m.matches()) {
+            say(mc, "[Bounty] amount looks like 1M, 2.5M, 100M, 1B or 1000000", false);
+            return 0;
+        }
+        double amount = toDollars(m.group(1), m.group(2));
+        String name = mc.player != null ? mc.player.getName().getString() : "Steve";
+        mc.execute(() -> BountyEffects.testToken(name, amount));
         return 1;
     }
 
@@ -178,7 +217,12 @@ public class BountySlapClient implements ClientModInitializer {
         }
         final String fname = name;
         final double famount = amount;
-        mc.execute(() -> BountyEffects.onBounty(fname, famount));
+        mc.execute(() -> {
+            // Remember the addition for the leaderboard (with the head, if that player is in the tab list).
+            BountyBoard.record(fname, famount,
+                    mc.getConnection() != null ? mc.getConnection().getPlayerInfo(fname) : null);
+            BountyEffects.onBounty(fname, famount);
+        });
     }
 
     static double toDollars(String num, String suffix) {
