@@ -42,8 +42,8 @@ final class BountyBoard {
 
     // Box positions in leaderboard.png pixels {x0, y0, x1, y1}, measured from the reference image.
     // Slot 0 = #1 (center podium), 1 = #2 (left podium), 2 = #3 (right podium).
-    private static final int[][] HEAD = {{290, 127, 376, 212}, {121, 151, 207, 236}, {463, 172, 548, 257}};
-    private static final int[][] NAME = {{290, 87, 375, 118}, {122, 111, 207, 143}, {463, 133, 547, 164}};
+    private static final int[][] HEAD = {{297, 180, 361, 243}, {181, 201, 245, 265}, {414, 213, 481, 277}};
+    private static final int[][] NAME = {{297, 251, 361, 267}, {179, 271, 246, 290}, {414, 282, 481, 300}};
     private static final int BOX_GRAY = 0xFFC8D1DA;
 
     private static final List<Entry> top = new ArrayList<>();
@@ -145,26 +145,24 @@ final class BountyBoard {
             int nx1 = Math.round(NAME[slot][2] * sx), ny1 = Math.round(NAME[slot][3] * sy);
             int hw = hx1 - hx0, hh = hy1 - hy0, nw = nx1 - nx0, nh = ny1 - ny0;
 
-            g.fill(nx0, ny0, nx1, ny1, BOX_GRAY);     // small box: the player's name
 
             PlayerInfo info = e != null ? infoFor(mc, e) : null;
-            if (info == null) g.fill(hx0, hy0, hx1, hy1, BOX_GRAY);   // placeholder only when no head is known
             if (info != null) {
-                int size = (int) (Math.min(hw, hh) * 0.70f);
+                int size = Math.min(hw, hh);          // head fills the whole box
                 int hx = hx0 + (hw - size) / 2;
-                int hy = hy0 + (int) (hh * 0.06f);
+                int hy = hy0 + (hh - size) / 2;
                 PlayerFaceRenderer.draw(g, info.getSkin(), hx, hy, size);
             } else {
-                drawCentered(g, mc, "?", hx0 + hw / 2f, hy0 + hh * (e != null ? 0.38f : 0.5f),
-                        hw * 0.5f, hh * 0.5f, 8f, 0xFF000000);
+                drawCentered(g, mc, "?", hx0 + hw / 2f, hy0 + hh * 0.5f,
+                        hw * 0.5f, hh * 0.5f, 8f, 0xFF5A3A12);
             }
 
             if (e != null) {
-                drawCentered(g, mc, BountySlapClient.fmtAmount(e.amount), hx0 + hw / 2f, hy0 + hh * 0.90f,
-                        hw * 0.92f, hh * 0.17f, 2.4f, 0xFF14702B);
-                drawCentered(g, mc, e.name, nx0 + nw / 2f, ny0 + nh / 2f, nw * 0.92f, nh * 0.62f, 2.2f, 0xFF1A1A1A);
+                drawCentered(g, mc, BountySlapClient.fmtAmount(e.amount), nx0 + nw / 2f, ny1 + nh * 0.9f + 4f,
+                        nw * 1.1f, nh * 0.9f, 2.4f, 0xFF14702B);   // amount just under the name tag
+                drawCentered(g, mc, e.name, nx0 + nw / 2f, ny0 + nh / 2f, nw * 0.94f, nh * 0.80f, 2.2f, 0xFF3A2406);
             } else {
-                drawCentered(g, mc, "---", nx0 + nw / 2f, ny0 + nh / 2f, nw * 0.92f, nh * 0.62f, 2.2f, 0xFF1A1A1A);
+                drawCentered(g, mc, "---", nx0 + nw / 2f, ny0 + nh / 2f, nw * 0.94f, nh * 0.80f, 2.2f, 0xFF3A2406);
             }
         }
     }
